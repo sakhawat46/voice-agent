@@ -1,0 +1,503 @@
+{% comment %} <!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DRF Voice Agent — Text & Voice Test</title>
+  <style>
+    :root { --bg:#0b1220; --card:#111827; --muted:#94a3b8; --accent:#38bdf8; --ok:#16a34a; --err:#ef4444;}
+    * { box-sizing: border-box }
+    body {
+      margin: 0; padding: 32px 16px; color: #e5e7eb; background: var(--bg);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; }
+    h1 { margin: 0 0 10px; font-size: 26px; letter-spacing: .2px }
+    .sub { color: var(--muted); margin-bottom: 18px; }
+    .panel {
+      background: var(--card); border: 1px solid #1f2937; border-radius: 14px; padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
+    label { display: inline-flex; align-items: center; gap: 8px; color: #cbd5e1; }
+    input[type="number"], input[type="text"] {
+      background:#0f172a; color:#e5e7eb; border:1px solid #1f2937; border-radius:10px; padding:10px 12px;
+      outline: none; min-width: 100px;
+    }
+    button {
+      border:0; border-radius: 12px; padding: 10px 14px; cursor: pointer; font-weight: 600;
+      transition: transform .06s ease;
+    }
+    button:active { transform: translateY(1px) }
+    #send { background: var(--accent); color:#003047 }
+    #micBtn.start { background: var(--ok); color: #06130a }
+    #micBtn.stop  { background: var(--err); color: #190b0b }
+    #status { font-size: .95rem; color: var(--muted); min-height: 1.2em }
+    .chat {
+      margin-top: 14px; display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto;
+      padding-right: 6px;
+    }
+    .bubble {
+      max-width: 85%; padding: 10px 12px; border-radius: 12px; line-height: 1.35; white-space: pre-wrap;
+      border: 1px solid #1f2937;
+    }
+    .user { align-self: flex-end; background:#0f172a; }
+    .bot  { align-self: flex-start; background:#0b1324; }
+    .footer { margin-top: 18px; display: flex; gap: 8px }
+    .muted { color: var(--muted) }
+    .hr { height:1px; background:#1f2937; margin:14px 0 }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Text + Voice Test</h1>
+    <div class="sub">Admin/API দিয়ে আগে একটি Agent তৈরি করুন। তারপর নিচে ID দিন, টেক্সট চ্যাট করুন বা ভয়েস শুরু করুন।</div>
+
+    <div class="panel">
+      <div class="row" style="margin-bottom:12px">
+        <label>Agent ID
+          <input id="agentId" type="number" value="1" />
+        </label>
+
+        <button id="micBtn" class="start">🎙️ Start Voice</button>
+        <div id="status"></div>
+      </div>
+
+      <audio id="remoteAudio" autoplay></audio>
+
+      <div class="hr"></div>
+
+      <div id="chat" class="chat" aria-live="polite"></div>
+
+      <div class="footer">
+        <input id="msg" type="text" placeholder="টাইপ করুন..." style="flex:1" />
+        <button id="send">Send</button>
+      </div>
+      <div class="muted" style="margin-top:8px">টেক্সট রুট: <code>/api/agents/&lt;id&gt;/chat/</code> · ভয়েস রুট: <code>/api/realtime/token/</code></div>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Elements ----------
+    const chatDiv = document.getElementById('chat');
+    const msg = document.getElementById('msg');
+    const send = document.getElementById('send');
+    const agentIdInput = document.getElementById('agentId');
+    const micBtn = document.getElementById('micBtn');
+    const statusEl = document.getElementById('status');
+    const remoteAudio = document.getElementById('remoteAudio');
+
+    // ---------- State ----------
+    let pc = null;            // RTCPeerConnection
+    let dc = null;            // RTCDataChannel (optional events)
+    let micStream = null;     // MediaStream
+    let inCall = false;
+
+    // ---------- Helpers ----------
+    function bubble(text, who) {
+      const b = document.createElement('div');
+      b.className = `bubble ${who}`;
+      b.textContent = text;
+      chatDiv.appendChild(b);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+    }
+    function setStatus(t) { statusEl.textContent = t || ''; }
+    function getAgentId() { return Number(agentIdInput.value || 1); }
+
+    // ---------- TEXT CHAT ----------
+    send.onclick = async () => {
+      const agentId = getAgentId();
+      const text = msg.value.trim();
+      if (!text) return;
+      bubble(text, 'user');
+      msg.value = '';
+
+      try {
+        const res = await fetch(`/api/agents/${agentId}/chat/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || JSON.stringify(data));
+        bubble(data.reply || JSON.stringify(data), 'bot');
+      } catch (e) {
+        bubble('⚠️ ' + (e?.message || e), 'bot');
+      }
+    };
+
+    // Enter key sends message
+    msg.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') send.click();
+    });
+
+    // ---------- VOICE (WebRTC + Realtime) ----------
+    micBtn.onclick = async () => {
+      if (!inCall) {
+        await startVoice();
+      } else {
+        await stopVoice();
+      }
+    };
+
+    async function startVoice() {
+      const agentId = getAgentId();
+      setStatus('Requesting mic + session...');
+      micBtn.disabled = true;
+
+      try {
+        // 1) Get ephemeral key (ek_) from your DRF backend
+        const tokenResp = await fetch('/api/realtime/token/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: agentId })
+        });
+        const tokenJson = await tokenResp.json();
+        if (!tokenResp.ok) {
+          throw new Error(`Server error: ${tokenJson?.error || tokenResp.status}`);
+        }
+
+        // We support both shapes: {value:"ek_..."} or {client_secret:{value:"ek_..."}}
+        const ek = tokenJson.value || (tokenJson.client_secret && tokenJson.client_secret.value);
+        if (!ek) {
+          throw new Error('No ephemeral key in response: ' + JSON.stringify(tokenJson));
+        }
+
+        // 2) Prepare WebRTC peer connection
+        pc = new RTCPeerConnection();
+        // Optional data channel to receive model events
+        dc = pc.createDataChannel('oai-events');
+        dc.onopen = () => setStatus('Data channel open. Say something!');
+        dc.onmessage = (e) => {
+          // You may inspect realtime events here
+          // console.log('oai-events:', e.data);
+        };
+
+        // Remote audio (model TTS) will come via ontrack
+        pc.ontrack = (event) => {
+          remoteAudio.srcObject = event.streams[0];
+        };
+
+        // 3) Capture microphone and add to pc
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of micStream.getTracks()) pc.addTrack(track, micStream);
+
+        // 4) Create local offer (SDP)
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // 5) Send SDP to OpenAI Realtime with the ephemeral key
+        //    Note: some implementations require the beta header.
+        const model = 'gpt-4o-realtime-preview'; // match your server-side model family
+        const sdpResp = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`, {
+          method: 'POST',
+          body: pc.localDescription.sdp,
+          headers: {
+            'Authorization': `Bearer ${ek}`,
+            'Content-Type': 'application/sdp',
+            'OpenAI-Beta': 'realtime=v1'
+          }
+        });
+
+        if (!sdpResp.ok) {
+          const txt = await sdpResp.text();
+          throw new Error(`Realtime SDP failed: ${sdpResp.status} ${txt}`);
+        }
+
+        const answer = await sdpResp.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+
+        inCall = true;
+        micBtn.textContent = '⏹ Stop Voice';
+        micBtn.classList.remove('start'); micBtn.classList.add('stop');
+        setStatus('Connected. Streaming in real time.');
+      } catch (err) {
+        console.error(err);
+        alert('Voice start failed: ' + (err?.message || err));
+        await stopVoice();
+      } finally {
+        micBtn.disabled = false;
+      }
+    }
+
+    async function stopVoice() {
+      setStatus('Stopping...');
+      try { if (dc) dc.close(); } catch(e){}
+      try { if (pc) pc.close(); } catch(e){}
+      try { if (micStream) micStream.getTracks().forEach(t => t.stop()); } catch(e){}
+      dc = null; pc = null; micStream = null;
+      inCall = false;
+      micBtn.textContent = '🎙️ Start Voice';
+      micBtn.classList.remove('stop'); micBtn.classList.add('start');
+      setStatus('');
+    }
+
+    // Cleanup on page leave
+    window.addEventListener('beforeunload', stopVoice);
+  </script>
+</body>
+</html> {% endcomment %}
+
+
+
+
+
+
+
+
+
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DRF Voice Agent — Text & Voice Test</title>
+  <style>
+    :root { --bg:#0b1220; --card:#111827; --muted:#94a3b8; --accent:#38bdf8; --ok:#16a34a; --err:#ef4444;}
+    * { box-sizing: border-box }
+    body {
+      margin: 0; padding: 32px 16px; color: #e5e7eb; background: var(--bg);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; }
+    h1 { margin: 0 0 10px; font-size: 26px; letter-spacing: .2px }
+    .sub { color: var(--muted); margin-bottom: 18px; }
+    .panel {
+      background: var(--card); border: 1px solid #1f2937; border-radius: 14px; padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
+    label { display: inline-flex; align-items: center; gap: 8px; color: #cbd5e1; }
+    input[type="number"], input[type="text"] {
+      background:#0f172a; color:#e5e7eb; border:1px solid #1f2937; border-radius:10px; padding:10px 12px;
+      outline: none; min-width: 100px;
+    }
+    button {
+      border:0; border-radius: 12px; padding: 10px 14px; cursor: pointer; font-weight: 600;
+      transition: transform .06s ease;
+    }
+    button:active { transform: translateY(1px) }
+    #send { background: var(--accent); color:#003047 }
+    #micBtn.start { background: var(--ok); color: #06130a }
+    #micBtn.stop  { background: var(--err); color: #190b0b }
+    #status { font-size: .95rem; color: var(--muted); min-height: 1.2em }
+    .chat {
+      margin-top: 14px; display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto;
+      padding-right: 6px;
+    }
+    .bubble {
+      max-width: 85%; padding: 10px 12px; border-radius: 12px; line-height: 1.35; white-space: pre-wrap;
+      border: 1px solid #1f2937;
+    }
+    .user { align-self: flex-end; background:#0f172a; }
+    .bot  { align-self: flex-start; background:#0b1324; }
+    .footer { margin-top: 18px; display: flex; gap: 8px }
+    .muted { color: var(--muted) }
+    .hr { height:1px; background:#1f2937; margin:14px 0 }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Text + Voice Test</h1>
+    <div class="sub">Admin/API দিয়ে আগে একটি Agent তৈরি করুন। তারপর নিচে ID দিন, টেক্সট চ্যাট করুন বা ভয়েস শুরু করুন।</div>
+
+    <div class="panel">
+      <div class="row" style="margin-bottom:12px">
+        <label>Agent ID
+          <input id="agentId" type="number" value="1" />
+        </label>
+
+        <button id="micBtn" class="start">🎙️ Start Voice</button>
+        <div id="status"></div>
+      </div>
+
+      <audio id="remoteAudio" autoplay></audio>
+
+      <div class="hr"></div>
+
+      <div id="chat" class="chat" aria-live="polite"></div>
+
+      <div class="footer">
+        <input id="msg" type="text" placeholder="টাইপ করুন..." style="flex:1" />
+        <button id="send">Send</button>
+      </div>
+      <div class="muted" style="margin-top:8px">টেক্সট রুট: <code>/api/agents/&lt;id&gt;/chat/</code> · ভয়েস রুট: <code>/api/realtime/token/</code></div>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Elements ----------
+    const chatDiv = document.getElementById('chat');
+    const msg = document.getElementById('msg');
+    const send = document.getElementById('send');
+    const agentIdInput = document.getElementById('agentId');
+    const micBtn = document.getElementById('micBtn');
+    const statusEl = document.getElementById('status');
+    const remoteAudio = document.getElementById('remoteAudio');
+
+    // ---------- State ----------
+    let pc = null;            // RTCPeerConnection
+    let dc = null;            // RTCDataChannel (optional events)
+    let micStream = null;     // MediaStream
+    let inCall = false;
+
+    // ---------- Helpers ----------
+    function bubble(text, who) {
+      const b = document.createElement('div');
+      b.className = `bubble ${who}`;
+      b.textContent = text;
+      chatDiv.appendChild(b);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+    }
+    function setStatus(t) { statusEl.textContent = t || ''; }
+    function getAgentId() { return Number(agentIdInput.value || 1); }
+
+    // ---------- TEXT CHAT ----------
+    send.onclick = async () => {
+      const agentId = getAgentId();
+      const text = msg.value.trim();
+      if (!text) return;
+      bubble(text, 'user');
+      msg.value = '';
+
+      try {
+        const res = await fetch(`/api/agents/${agentId}/chat/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || JSON.stringify(data));
+        bubble(data.reply || JSON.stringify(data), 'bot');
+      } catch (e) {
+        bubble('⚠️ ' + (e?.message || e), 'bot');
+      }
+    };
+
+    // Enter key sends message
+    msg.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') send.click();
+    });
+
+    // ---------- VOICE (WebRTC + Realtime) ----------
+    micBtn.onclick = async () => {
+      if (!inCall) {
+        await startVoice();
+      } else {
+        await stopVoice();
+      }
+    };
+
+    async function startVoice() {
+      const agentId = getAgentId();
+      setStatus('Mic + session নিচ্ছি...');
+      micBtn.disabled = true;
+
+      try {
+        // 1) Get ephemeral key (ek_) from your DRF backend
+        const tokenResp = await fetch('/api/realtime/token/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: agentId })
+        });
+        const tokenJson = await tokenResp.json();
+        if (!tokenResp.ok) {
+          throw new Error(`Server error: ${tokenJson?.error || tokenResp.status}`);
+        }
+
+        // Support both shapes: {value:"ek_..."} OR {client_secret:{value:"ek_..."}}
+        const ek = tokenJson.value || (tokenJson.client_secret && tokenJson.client_secret.value);
+        if (!ek) {
+          throw new Error('No ephemeral key in response: ' + JSON.stringify(tokenJson));
+        }
+
+        // 2) Prepare WebRTC peer connection
+        pc = new RTCPeerConnection();
+
+        // Optional data channel to send realtime events (welcome, etc.)
+        dc = pc.createDataChannel('oai-events');
+        dc.onopen = () => {
+          setStatus('Data channel open. Say something!');
+          // ---- Welcome message right after channel is open ----
+          try {
+            dc.send(JSON.stringify({
+              type: "response.create",
+              response: {
+                // বাংলায় ওয়েলকাম: চাইলে এখানে আপনার নিজের লাইন বসাতে পারেন
+                instructions: "ইউজারকে বাংলা ভাষায় বন্ধুসুলভ ও সংক্ষিপ্ত একটি ওয়েলকাম বলো।",
+                modalities: ["audio", "text"]
+              }
+            }));
+          } catch (e) {
+            console.warn("Welcome send failed:", e);
+          }
+        };
+        dc.onmessage = (e) => {
+          // Optional: inspect realtime events
+          // console.log('oai-events:', e.data);
+        };
+
+        // Remote audio (model TTS) will come via ontrack
+        pc.ontrack = (event) => {
+          remoteAudio.srcObject = event.streams[0];
+        };
+
+        // 3) Capture microphone and add to pc
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of micStream.getTracks()) pc.addTrack(track, micStream);
+
+        // 4) Create local offer (SDP)
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // 5) Send SDP to OpenAI Realtime with the ephemeral key
+        //    IMPORTANT: include OpenAI-Beta header for realtime protocol.
+        const model = 'gpt-realtime'; // ✅ সার্ভার-সাইড মডেলের সঙ্গে মিল রাখুন
+        const sdpResp = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`, {
+          method: 'POST',
+          body: pc.localDescription.sdp,
+          headers: {
+            'Authorization': `Bearer ${ek}`,
+            'Content-Type': 'application/sdp',
+            'OpenAI-Beta': 'realtime=v1'
+          }
+        });
+
+        if (!sdpResp.ok) {
+          const txt = await sdpResp.text();
+          throw new Error(`Realtime SDP failed: ${sdpResp.status} ${txt}`);
+        }
+
+        const answer = await sdpResp.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+
+        inCall = true;
+        micBtn.textContent = '⏹ Stop Voice';
+        micBtn.classList.remove('start'); micBtn.classList.add('stop');
+        setStatus('Connected. Streaming in real time.');
+      } catch (err) {
+        console.error(err);
+        alert('Voice start failed: ' + (err?.message || err));
+        await stopVoice();
+      } finally {
+        micBtn.disabled = false;
+      }
+    }
+
+    async function stopVoice() {
+      setStatus('Stopping...');
+      try { if (dc) dc.close(); } catch(e){}
+      try { if (pc) pc.close(); } catch(e){}
+      try { if (micStream) micStream.getTracks().forEach(t => t.stop()); } catch(e){}
+      dc = null; pc = null; micStream = null;
+      inCall = false;
+      micBtn.textContent = '🎙️ Start Voice';
+      micBtn.classList.remove('stop'); micBtn.classList.add('start');
+      setStatus('');
+    }
+
+    // Cleanup on page leave
+    window.addEventListener('beforeunload', stopVoice);
+  </script>
+</body>
+</html>
