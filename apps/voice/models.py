@@ -1,4 +1,3 @@
-# agentapp/models.py
 import uuid
 from django.db import models
 from django.conf import settings
@@ -12,7 +11,7 @@ class Agent(models.Model):
     business_details = models.JSONField(default=dict, blank=True)
     voice = models.CharField(max_length=50, default="alloy")
     language = models.CharField(max_length=10, default="bn")
-    enabled = models.BooleanField(default=True)
+    enabled = models.BooleanField(default=False)
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     theme_primary = models.CharField(max_length=20, default="#16a34a")

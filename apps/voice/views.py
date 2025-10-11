@@ -6,13 +6,17 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 import requests
-
 from .models import Agent
 from .serializers import AgentSerializer
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from django.urls import reverse
+
 
 OPENAI_API_KEY = settings.OPENAI_API_KEY
 REALTIME_SESSION_URL = "https://api.openai.com/v1/realtime/sessions"
 CHAT_URL = "https://api.openai.com/v1/chat/completions"
+
 
 # -------- Owner-scoped CRUD --------
 class AgentsListCreateView(APIView):
@@ -63,13 +67,6 @@ class AgentDetailView(APIView):
 
 
 # -------- Public: Voice start (Realtime ek_) --------
-
-
-# top imports
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
-
-
 @method_decorator(csrf_exempt, name='dispatch')
 class PublicVoiceStartView(APIView):
     permission_classes = [AllowAny]
@@ -107,6 +104,7 @@ class PublicVoiceStartView(APIView):
             "sdp_url": "https://api.openai.com/v1/realtime?model=gpt-realtime",
             "headers": {"OpenAI-Beta": "realtime=v1"}
         }, status=200)
+
 
 
 # -------- Public: Chat (by public_id) --------
@@ -147,24 +145,34 @@ class PublicChatView(APIView):
         return Response({"reply": reply}, status=200)
 
 
+
 # -------- Owner: Get Embed code (copy/paste) --------
-from django.urls import reverse
 
 class AgentEmbedInfoView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        # ensure owner matches
         agent = get_object_or_404(Agent, pk=pk, owner=request.user)
+
+        # Only return embed code if the agent is enabled
+        if not agent.enabled:
+            return Response(
+                {"detail": "Embed code not available. This agent is not enabled by admin."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         embed_js_url = request.build_absolute_uri(reverse("voice-embed-js-v2"))
         base_url = f"{request.scheme}://{request.get_host()}"
         code = (f'<script defer src="{embed_js_url}" '
                 f'data-agent="{agent.public_id}" data-base-url="{base_url}"></script>')
-        return Response({"public_id": str(agent.public_id), "embed_code": code}, status=200)
+        return Response({"public_id": str(agent.public_id), "embed_code": code}, status=status.HTTP_200_OK)
 
 
 
 
-from django.http import HttpResponse
+
+
 
 def embed_js_v2(request):
     """
