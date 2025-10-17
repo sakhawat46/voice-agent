@@ -14,6 +14,7 @@ from django.urls import reverse
 
 
 OPENAI_API_KEY = settings.OPENAI_API_KEY
+# OPENAI_API_KEY = "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"
 REALTIME_SESSION_URL = "https://api.openai.com/v1/realtime/sessions"
 CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
