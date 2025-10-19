@@ -13,8 +13,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.urls import reverse
 
 
-OPENAI_API_KEY = settings.OPENAI_API_KEY
-# OPENAI_API_KEY = "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"
+# OPENAI_API_KEY = settings.OPENAI_API_KEY
+OPENAI_API_KEY = "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"
 REALTIME_SESSION_URL = "https://api.openai.com/v1/realtime/sessions"
 CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
