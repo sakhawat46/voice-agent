@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <title>Voice + Chat — Embed Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; 
+           background: #0b1220; color: #e5e7eb; margin: 0; }
+    .wrap { max-width: 860px; margin: 48px auto; padding: 0 16px; }
+    h1 { margin: 0 0 10px; font-size: 28px; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 14px; padding: 18px; }
+    code { background: #0f172a; padding: 2px 6px; border-radius: 8px; }
+    ul { line-height: 1.6 }
+  </style> -->
+</head>
+<body>
+  <!-- <div class="wrap">
+    <h1>Voice + Chat Embed — Test Page</h1>
+    <div class="card">
+      <p>এই পেজে ফ্লোটিং 🎙️ বাটন দেখলে বুঝবেন এমবেড কাজ করছে।</p>
+      <ul>
+        <li>🎙️ বাটনে ক্লিক করলে রিয়েল-টাইম ভয়েস কানেকশন হবে।</li>
+        <li>🎙️ বাটনে <b>রাইট-ক্লিক</b> করলে টেক্সট চ্যাট প্যানেল ওপেন/ক্লোজ হবে।</li>
+        <li>এই এমবেড স্ক্রিপ্ট আপনার সার্ভারের দুইটা পাবলিক API ব্যবহার করে:
+          <div><code>POST /api/embed/agents/&lt;public_id&gt;/voice/start/</code> (ek_ টোকেন)</div>
+          <div><code>POST /api/embed/agents/&lt;public_id&gt;/chat/</code> (টেক্সট রিপ্লাই)</div>
+        </li>
+      </ul>
+      <p style="opacity:.8">টিপ: যদি 🎙️ না আসে, আপনার Django সার্ভারে <code>/embed/v2.js</code> রুট এবং API গুলো অন আছে কিনা দেখুন।</p>
+    </div>
+  </div> -->
+
+  <!--  এমবেড স্ক্রিপ্ট: YOUR public_id বসান -->
+  <script defer
+    src="http://127.0.0.1:8000/embed/v2.js"
+    data-agent="d7993119-1433-46ae-bd81-e59e496d7a1c"
+    data-base-url="http://127.0.0.1:8000">
+  </script>
+</body>
+</html>

@@ -27,6 +27,20 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOW_HEADERS = ["*"]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+
 
 # Application definition
 
@@ -70,6 +84,7 @@ SIMPLE_JWT = {
 
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -81,7 +96,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'projects.urls'
 
-# AUTH_USER_MODEL = 'users.User'
+AUTH_USER_MODEL = 'users.User'
 
 TEMPLATES = [
     {
@@ -165,3 +180,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 from dotenv import load_dotenv
 load_dotenv()  # Load variables from .env
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+
+
+# Gmail SMTP server Settings
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # Gmail SMTP server
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'sakhawatdev5@gmail.com'
+EMAIL_HOST_PASSWORD = 'msbk ayjd kacg eigo'  # Gmail app password
