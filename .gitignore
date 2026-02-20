@@ -3,3 +3,5 @@
 env/
 venv/
 ENV/
+config.bat
+node_modules
